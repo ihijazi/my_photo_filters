@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'package:uuid/uuid.dart';
 
 class ImageProcessor {
   static Future<img.Image?> loadImage(File file) async {
@@ -18,13 +19,12 @@ class ImageProcessor {
 
     final Uint8List imageBytes = Uint8List.fromList(img.encodeJpg(image));
     final tempDir = await getTemporaryDirectory();
-    final path = "${tempDir.path}/${generateRandomString()}.jpeg";
+    final path = "${tempDir.path}/${Uuid().v4()}.jpeg";
     final File file = File(path);
     await file.writeAsBytes(imageBytes);
 
     // Save image to gallery
-    final result = await PhotoManager.editor
-        .saveImage(imageBytes, title: generateRandomString());
+    final result = await PhotoManager.editor.saveImageWithPath(path, title: '');
 
     if (result != null) {
       print('Image saved to gallery: $result');
@@ -37,15 +37,5 @@ class ImageProcessor {
   static img.Image compressImage(img.Image originalImage, int quality) {
     Uint8List? compressedBytes = img.encodeJpg(originalImage, quality: quality);
     return img.decodeImage(compressedBytes)!;
-  }
-
-  static String generateRandomString() {
-    final random = Random();
-    const availableChars =
-        'AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz1234567890';
-    final randomString = List.generate(
-            4, (index) => availableChars[random.nextInt(availableChars.length)])
-        .join();
-    return randomString;
   }
 }

@@ -6,9 +6,19 @@ import 'filter_manager.dart';
 import 'apply_filter_params.dart';
 import 'named_color_filter.dart';
 import 'package:image/image.dart' as img;
+import 'package:permission_handler/permission_handler.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await requestPermissions();
   runApp(MyApp());
+}
+
+Future<void> requestPermissions() async {
+  await [
+    Permission.storage,
+    Permission.manageExternalStorage,
+  ].request();
 }
 
 class MyApp extends StatelessWidget {
