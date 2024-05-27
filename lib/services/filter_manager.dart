@@ -1,5 +1,5 @@
 import 'package:image/image.dart' as img;
-import 'apply_filter_params.dart';
+import '../models/apply_filter_params.dart';
 
 class FilterManager {
   static Future<img.Image> applyFilter(
