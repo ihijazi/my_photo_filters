@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:my_photo_filters/image_processor.dart';
@@ -29,16 +28,18 @@ class ImageProcessorScreen extends StatefulWidget {
 class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
   List<img.Image> _originalImages = [];
   bool _isSaved = false;
+  bool _isLoading = false;
   List<File> _imageFiles = [];
   NamedColorFilter _selectedFilter =
       NamedColorFilter(colorFilterMatrix: [], name: 'None');
 
   Future<void> _pickImages() async {
-    final stopwatch = Stopwatch()..start();
+    setState(() {
+      _isLoading = true;
+    });
+
     final picker = ImagePicker();
     final pickedFiles = await picker.pickMultiImage();
-    stopwatch.stop();
-    print('Time taken to pick images: ${stopwatch.elapsedMilliseconds} ms');
 
     if (pickedFiles != null) {
       _imageFiles =
@@ -50,26 +51,22 @@ class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
     } else {
       print("No images selected.");
     }
+
+    setState(() {
+      _isLoading = false;
+    });
   }
 
   Future<void> _loadImages(List<File> imageFiles) async {
-    final stopwatch = Stopwatch()..start();
     _originalImages = await Future.wait(imageFiles.map((file) async {
       final imageBytes = await file.readAsBytes();
       return img.decodeImage(imageBytes)!;
     }).toList());
-    stopwatch.stop();
-    print('Time taken to load images: ${stopwatch.elapsedMilliseconds} ms');
 
     if (_originalImages.isNotEmpty) {
-      stopwatch.reset();
-      stopwatch.start();
       _originalImages = _originalImages.map((image) {
         return _cropAndResize(image, maxSize: 1080, aspectRatio: 1.0);
       }).toList();
-      stopwatch.stop();
-      print(
-          'Time taken to crop and resize images: ${stopwatch.elapsedMilliseconds} ms');
 
       setState(() {
         _selectedFilter = NamedColorFilter(
@@ -79,12 +76,9 @@ class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
   }
 
   Future<void> _applyFilter(NamedColorFilter filter) async {
-    final stopwatch = Stopwatch()..start();
     setState(() {
       _selectedFilter = filter;
     });
-    stopwatch.stop();
-    print('Time taken to apply filter: ${stopwatch.elapsedMilliseconds} ms');
   }
 
   img.Image _cropAndResize(
@@ -137,7 +131,9 @@ class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
   }
 
   Future<void> _saveImages() async {
-    final stopwatch = Stopwatch()..start();
+    setState(() {
+      _isLoading = true;
+    });
 
     List<img.Image> processedImages = [];
 
@@ -158,25 +154,19 @@ class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
         processedImages.add(processedImage);
       }
 
-      stopwatch.stop();
-      print(
-          'Time taken to apply filter to images: ${stopwatch.elapsedMilliseconds} ms');
-
-      stopwatch.reset();
-      stopwatch.start();
-
       for (var processedImage in processedImages) {
-        ImageProcessor.saveImage(processedImage, false, 100);
+        await ImageProcessor.saveImage(processedImage, false, 100);
       }
-
-      stopwatch.stop();
-      print('Time taken to save images: ${stopwatch.elapsedMilliseconds} ms');
 
       setState(() {
         _isSaved = true;
+        _isLoading = false;
       });
     } catch (e) {
       print("Failed to apply filter and save images: $e");
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
@@ -186,51 +176,59 @@ class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
         appBar: AppBar(
           title: Text('Image Processor'),
         ),
-        body: Column(
-          children: <Widget>[
-            Expanded(
-              child: _imageFiles.isEmpty
-                  ? Center(child: Text('No processed images.'))
-                  : ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _imageFiles.length,
-                      itemBuilder: (context, index) {
-                        return Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: ColorFiltered(
-                            colorFilter:
-                                _selectedFilter.colorFilterMatrix.isEmpty
+        body: Stack(
+          children: [
+            Column(
+              children: <Widget>[
+                Expanded(
+                  child: _imageFiles.isEmpty
+                      ? Center(child: Text('No processed images.'))
+                      : ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _imageFiles.length,
+                          itemBuilder: (context, index) {
+                            return Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: ColorFiltered(
+                                colorFilter: _selectedFilter
+                                        .colorFilterMatrix.isEmpty
                                     ? ColorFilter.mode(
                                         Colors.transparent, BlendMode.multiply)
                                     : ColorFilter.matrix(
                                         _selectedFilter.colorFilterMatrix),
-                            child: Image.file(_imageFiles[index]),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _pickImages,
-              child: Text('Pick Images'),
-            ),
-            SizedBox(height: 20),
-            _presets(),
-            SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _saveImages,
-              child: Text('Save Images'),
-            ),
-            if (_isSaved)
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Text(
-                  'Images saved successfully!',
-                  style: TextStyle(color: Colors.green),
+                                child: Image.file(_imageFiles[index]),
+                              ),
+                            );
+                          },
+                        ),
                 ),
+                SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: _pickImages,
+                  child: Text('Pick Images'),
+                ),
+                SizedBox(height: 20),
+                _presets(),
+                SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: _saveImages,
+                  child: Text('Save Images'),
+                ),
+                if (_isSaved)
+                  Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Text(
+                      'Images saved successfully!',
+                      style: TextStyle(color: Colors.green),
+                    ),
+                  ),
+                SizedBox(height: 20),
+              ],
+            ),
+            if (_isLoading)
+              Center(
+                child: CircularProgressIndicator(),
               ),
-            SizedBox(height: 20),
           ],
         ));
   }
