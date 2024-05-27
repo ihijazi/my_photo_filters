@@ -47,19 +47,15 @@ class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
   Future<void> _loadImages(List<File> imageFiles) async {
     _originalImages = await Future.wait(imageFiles.map((file) async {
       final imageBytes = await file.readAsBytes();
-      return img.decodeImage(imageBytes)!;
+
+      return cropAndResize(img.decodeImage(imageBytes)!,
+          maxSize: 1080, aspectRatio: 1.0);
     }).toList());
 
-    if (_originalImages.isNotEmpty) {
-      _originalImages = _originalImages.map((image) {
-        return cropAndResize(image, maxSize: 1080, aspectRatio: 1.0);
-      }).toList();
-
-      setState(() {
-        _selectedFilter = NamedColorFilter(
-            colorFilterMatrix: [], name: 'None'); // Reset the selected filter
-      });
-    }
+    setState(() {
+      _selectedFilter = NamedColorFilter(
+          colorFilterMatrix: [], name: 'None'); // Reset the selected filter
+    });
   }
 
   Future<void> _applyFilter(NamedColorFilter filter) async {
