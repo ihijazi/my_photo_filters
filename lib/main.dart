@@ -27,45 +27,49 @@ class ImageProcessorScreen extends StatefulWidget {
 }
 
 class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
-  img.Image? _originalImage;
+  List<img.Image> _originalImages = [];
   bool _isSaved = false;
-  File? _imageFile;
+  List<File> _imageFiles = [];
   NamedColorFilter _selectedFilter =
       NamedColorFilter(colorFilterMatrix: [], name: 'None');
 
-  Future<void> _pickImage() async {
+  Future<void> _pickImages() async {
     final stopwatch = Stopwatch()..start();
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    final pickedFiles = await picker.pickMultiImage();
     stopwatch.stop();
-    print('Time taken to pick image: ${stopwatch.elapsedMilliseconds} ms');
+    print('Time taken to pick images: ${stopwatch.elapsedMilliseconds} ms');
 
-    if (pickedFile != null) {
-      _imageFile = File(pickedFile.path);
-      await _loadImage(_imageFile!);
+    if (pickedFiles != null) {
+      _imageFiles =
+          pickedFiles.map((pickedFile) => File(pickedFile.path)).toList();
+      await _loadImages(_imageFiles);
       setState(() {
         _isSaved = false; // Reset saved status
       });
     } else {
-      print("No image selected.");
+      print("No images selected.");
     }
   }
 
-  Future<void> _loadImage(File imageFile) async {
+  Future<void> _loadImages(List<File> imageFiles) async {
     final stopwatch = Stopwatch()..start();
-    final imageBytes = await imageFile.readAsBytes();
-    _originalImage = img.decodeImage(imageBytes);
+    _originalImages = await Future.wait(imageFiles.map((file) async {
+      final imageBytes = await file.readAsBytes();
+      return img.decodeImage(imageBytes)!;
+    }).toList());
     stopwatch.stop();
-    print('Time taken to load image: ${stopwatch.elapsedMilliseconds} ms');
+    print('Time taken to load images: ${stopwatch.elapsedMilliseconds} ms');
 
-    if (_originalImage != null) {
+    if (_originalImages.isNotEmpty) {
       stopwatch.reset();
       stopwatch.start();
-      _originalImage =
-          _cropAndResize(_originalImage!, maxSize: 1080, aspectRatio: 1.0);
+      _originalImages = _originalImages.map((image) {
+        return _cropAndResize(image, maxSize: 1080, aspectRatio: 1.0);
+      }).toList();
       stopwatch.stop();
       print(
-          'Time taken to crop and resize image: ${stopwatch.elapsedMilliseconds} ms');
+          'Time taken to crop and resize images: ${stopwatch.elapsedMilliseconds} ms');
 
       setState(() {
         _selectedFilter = NamedColorFilter(
@@ -132,42 +136,47 @@ class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
     return croppedImage;
   }
 
-  Future<void> _saveImage() async {
+  Future<void> _saveImages() async {
     final stopwatch = Stopwatch()..start();
 
-    ApplyFilterParams params = ApplyFilterParams(
-      img: img.copyResize(_originalImage!,
-          height: _originalImage!.height, width: _originalImage!.width)!,
-      colorMatrix: _selectedFilter.colorFilterMatrix,
-    );
-
-    img.Image processedImage;
+    List<img.Image> processedImages = [];
 
     try {
-      if (params.colorMatrix.isNotEmpty) {
-        processedImage = await FilterManager.applyFilter(params);
-      } else {
-        processedImage = _originalImage!;
+      for (var image in _originalImages) {
+        ApplyFilterParams params = ApplyFilterParams(
+          img: img.copyResize(image, height: image.height, width: image.width)!,
+          colorMatrix: _selectedFilter.colorFilterMatrix,
+        );
+
+        img.Image processedImage;
+
+        if (params.colorMatrix.isNotEmpty) {
+          processedImage = await FilterManager.applyFilter(params);
+        } else {
+          processedImage = image;
+        }
+        processedImages.add(processedImage);
       }
+
       stopwatch.stop();
-      print('Time taken to apply filter: ${stopwatch.elapsedMilliseconds} ms');
+      print(
+          'Time taken to apply filter to images: ${stopwatch.elapsedMilliseconds} ms');
 
       stopwatch.reset();
-
       stopwatch.start();
 
-      //ImageProcessor.saveImage(processedImage, true, 75);
-      ImageProcessor.saveImage(processedImage, false, 100);
+      for (var processedImage in processedImages) {
+        ImageProcessor.saveImage(processedImage, false, 100);
+      }
 
       stopwatch.stop();
-
-      print('Time taken to save image: ${stopwatch.elapsedMilliseconds} ms');
+      print('Time taken to save images: ${stopwatch.elapsedMilliseconds} ms');
 
       setState(() {
         _isSaved = true;
       });
     } catch (e) {
-      print("Failed to apply filter and save image: $e");
+      print("Failed to apply filter and save images: $e");
     }
   }
 
@@ -180,36 +189,44 @@ class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
         body: Column(
           children: <Widget>[
             Expanded(
-              child: Center(
-                child: _imageFile == null
-                    ? Text('No processed image.')
-                    : ColorFiltered(
-                        colorFilter: _selectedFilter.colorFilterMatrix.isEmpty
-                            ? ColorFilter.mode(
-                                Colors.transparent, BlendMode.multiply)
-                            : ColorFilter.matrix(
-                                _selectedFilter.colorFilterMatrix),
-                        child: Image.file(_imageFile!),
-                      ),
-              ),
+              child: _imageFiles.isEmpty
+                  ? Center(child: Text('No processed images.'))
+                  : ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _imageFiles.length,
+                      itemBuilder: (context, index) {
+                        return Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: ColorFiltered(
+                            colorFilter:
+                                _selectedFilter.colorFilterMatrix.isEmpty
+                                    ? ColorFilter.mode(
+                                        Colors.transparent, BlendMode.multiply)
+                                    : ColorFilter.matrix(
+                                        _selectedFilter.colorFilterMatrix),
+                            child: Image.file(_imageFiles[index]),
+                          ),
+                        );
+                      },
+                    ),
             ),
             SizedBox(height: 20),
             ElevatedButton(
-              onPressed: _pickImage,
-              child: Text('Pick Image'),
+              onPressed: _pickImages,
+              child: Text('Pick Images'),
             ),
             SizedBox(height: 20),
             _presets(),
             SizedBox(height: 20),
             ElevatedButton(
-              onPressed: _saveImage,
-              child: Text('Save Image'),
+              onPressed: _saveImages,
+              child: Text('Save Images'),
             ),
             if (_isSaved)
               Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: Text(
-                  'Image saved successfully!',
+                  'Images saved successfully!',
                   style: TextStyle(color: Colors.green),
                 ),
               ),
@@ -261,12 +278,18 @@ class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
                       child: ClipRRect(
                           borderRadius:
                               const BorderRadius.all(Radius.circular(8.0)),
-                          child: Image.file(
-                            _imageFile!,
-                            width: 100,
-                            height: 100,
-                            fit: BoxFit.cover,
-                          )),
+                          child: _imageFiles.isNotEmpty
+                              ? Image.file(
+                                  _imageFiles.first,
+                                  width: 100,
+                                  height: 100,
+                                  fit: BoxFit.cover,
+                                )
+                              : Container(
+                                  width: 100,
+                                  height: 100,
+                                  color: Colors.grey,
+                                )),
                     ),
                   ),
                 ),
