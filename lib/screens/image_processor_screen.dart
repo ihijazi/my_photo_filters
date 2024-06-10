@@ -16,6 +16,10 @@ class ImageProcessorScreen extends StatefulWidget {
   _ImageProcessorScreenState createState() => _ImageProcessorScreenState();
 }
 
+double? selectedAspectRatio;
+int? selectedHeight;
+int? selectedWidth;
+
 class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
   List<img.Image> _originalImages = [];
   bool _isSaved = false;
@@ -26,17 +30,26 @@ class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
 
   Future<void> _pickImages() async {
     final picker = ImagePicker();
-    final pickedFiles = await picker.pickMultiImage();
+    final pickedFiles = await picker.pickMultiImage(
+        requestFullMetadata: false,
+        limit: 10,
+        maxWidth: 1440, // recommended max size, do NOT change
+        maxHeight: 1800, // recommended max size, do NOT change
+        imageQuality: 100);
 
-    if (pickedFiles != null) {
+    selectedAspectRatio = null;
+    selectedHeight = null;
+    selectedWidth = null;
+
+    if (pickedFiles.length > 0) {
+      debugPrint("Picked " + pickedFiles.length.toString() + " images");
       _imageFiles =
           pickedFiles.map((pickedFile) => File(pickedFile.path)).toList();
+      debugPrint("Mapped images");
       await _loadImages(_imageFiles);
-      setState(() {
-        _isSaved = false; // Reset saved status
-      });
+      debugPrint("Cropped, resized and loaded images into UI");
     } else {
-      print("No images selected.");
+      debugPrint("No images selected.");
     }
 
     setState(() {
@@ -48,8 +61,25 @@ class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
     _originalImages = await Future.wait(imageFiles.map((file) async {
       final imageBytes = await file.readAsBytes();
 
-      return cropAndResize(img.decodeImage(imageBytes)!,
-          maxSize: 1080, aspectRatio: 1.0);
+      img.Image? thisImg = img.decodeImage(imageBytes);
+
+      if (selectedAspectRatio == null) {
+        final finalAspectRatio =
+            selectBestAspectRatio(thisImg!.width, thisImg.height);
+
+        selectedAspectRatio = finalAspectRatio['ratio']!;
+        selectedHeight = finalAspectRatio['height']!.toInt();
+        selectedWidth = finalAspectRatio['width']!.toInt();
+      }
+
+      //return thisImg!;
+
+      return cropAndResize(
+        thisImg!,
+        aspectRatio: selectedAspectRatio!,
+        targetHeight: selectedHeight!,
+        targetWidth: selectedWidth!,
+      );
     }).toList());
 
     setState(() {
@@ -64,31 +94,47 @@ class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
     });
   }
 
-  Future<void> _saveImages() async {
-    List<img.Image> processedImages = [];
+  Future<void> _saveImages(bool saveImagesToGallery) async {
+    List<Future<img.Image>> processingFutures = [];
+    List<Future<void>> savingFutures = [];
 
     try {
+      // Process images in parallel
       for (var image in _originalImages) {
-        ApplyFilterParams params = ApplyFilterParams(
-          img: img.copyResize(image, height: image.height, width: image.width)!,
-          colorMatrix: _selectedFilter.colorFilterMatrix,
-        );
+        debugPrint("Added image to processor...");
+        processingFutures.add(Future(() async {
+          ApplyFilterParams params = ApplyFilterParams(
+            img: img.copyResize(image,
+                height: image.height, width: image.width)!,
+            colorMatrix: _selectedFilter.colorFilterMatrix,
+          );
 
-        img.Image processedImage;
+          if (params.colorMatrix.isNotEmpty) {
+            return await FilterManager.applyFilter(params);
+          } else {
+            return image;
+          }
+        }).then((result) => result));
+      }
+      debugPrint("Adding future processing finished, start processing now");
+      // Wait for all images to be processed
+      List<img.Image> processedImages = await Future.wait(processingFutures);
+      debugPrint("Images processing finished");
 
-        if (params.colorMatrix.isNotEmpty) {
-          processedImage = await FilterManager.applyFilter(params);
-        } else {
-          processedImage = image;
+      if (saveImagesToGallery) {
+        for (var processedImage in processedImages) {
+          debugPrint("Added image to save...");
+          savingFutures.add(Future(() async {
+            await ImageProcessor.saveImage(processedImage, false, 100);
+          }));
         }
-
-        processedImages.add(processedImage);
+        debugPrint("Finished adding images to save list...");
+        // Start saving all images in parallel and wait for completion
+        await Future.wait(savingFutures);
+        debugPrint("Images saving finished");
       }
 
-      for (var processedImage in processedImages) {
-        await ImageProcessor.saveImage(processedImage, false, 100);
-      }
-
+      // Update UI state
       setState(() {
         _isSaved = true;
         _isLoading = false;
@@ -139,7 +185,7 @@ class _ImageProcessorScreenState extends State<ImageProcessorScreen> {
                     setState(() {
                       _isLoading = true;
                     });
-                    _saveImages();
+                    _saveImages(false);
                   },
                   child: Text('Save Images'),
                 ),
